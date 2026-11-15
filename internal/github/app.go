@@ -34,10 +34,10 @@ const (
 	// jobs, and a large matrix costs one more for every hundred of them.
 	maxPollRuns = 50
 	// maxPollRequests caps the API calls one sweep may make in total: the
-	// repository listing, the two run listings per repository and the job
+	// repository listing, the four run listings per repository and the job
 	// listing per run (a page each, for a run with more than a hundred jobs).
 	// maxPollRuns bounds only the last of those, and a
-	// hundred-repository organisation costs two hundred run listings before
+	// hundred-repository organisation costs four hundred run listings before
 	// a single job is looked at -- every thirty seconds, in exactly the
 	// failure the poller exists for, which spent the installation's hourly
 	// quota in about ten minutes and then starved JIT minting. Sixty a sweep
@@ -640,9 +640,9 @@ func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
 		if name == "" {
 			continue
 		}
-		// A run that is in_progress can still hold jobs nobody has picked up,
-		// so both statuses matter.
-		for _, status := range []string{"queued", "in_progress"} {
+		// A deployment can leave the run pending or waiting while its other
+		// jobs still need runners.
+		for _, status := range []string{"queued", "in_progress", "pending", "waiting"} {
 			if budget <= 0 || requests <= 0 {
 				break
 			}

@@ -325,6 +325,49 @@ func TestListQueuedJobsOrgSpansRepositories(t *testing.T) {
 	}
 }
 
+func TestRunnableJobsRemainDiscoverableWhileAnotherJobBlocksTheWorkflow(t *testing.T) {
+	for _, runStatus := range []string{"pending", "waiting"} {
+		t.Run(runStatus, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/repos/acme/widgets/actions/runs":
+					if r.URL.Query().Get("status") != runStatus {
+						_, _ = w.Write([]byte(`{"total_count":0,"workflow_runs":[]}`))
+						return
+					}
+					_, _ = fmt.Fprintf(w, `{"total_count":1,"workflow_runs":[{"id":17,"name":"CI","status":%q}]}`, runStatus)
+				case "/repos/acme/widgets/actions/runs/17/jobs":
+					_, _ = fmt.Fprintf(w, `{"total_count":4,"jobs":[
+						{"id":101,"name":"verify","status":"queued","labels":["self-hosted","linux"]},
+						{"id":102,"name":"test","status":"in_progress","runner_name":"zoomies-linux-live","labels":["self-hosted","linux"]},
+						{"id":103,"name":"deploy","status":%q},
+						{"id":104,"name":"prepare","status":"completed","conclusion":"success"}
+					]}`, runStatus)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			client, err := newGitHubClient(srv.Client(), srv.URL+"/", srv.URL+"/")
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := newAppClient(client, client, "acme/widgets", store.TargetRepo, 1, "https://github.com")
+			jobs, err := c.ListQueuedJobs(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(jobs) != 2 || jobs[0].ID != 101 || jobs[1].ID != 102 {
+				t.Fatalf("jobs = %+v, want the queued and running jobs alongside the blocked deployment", jobs)
+			}
+			if jobs[0].RunID != 17 || jobs[0].Status != "queued" || jobs[1].Status != "in_progress" || jobs[1].RunnerName != "zoomies-linux-live" {
+				t.Fatalf("runnable job details lost: %+v", jobs)
+			}
+		})
+	}
+}
+
 func TestListQueuedJobsRepoTargetIgnoresOtherRepos(t *testing.T) {
 	f := newFake(t)
 	f.AddQueuedJob("acme/widgets", "CI", "build", []string{"linux"})
@@ -834,9 +877,9 @@ func TestThePollerReadsEveryPageOfALargeRunsJobs(t *testing.T) {
 	if want := 3 * pollPerPage; len(jobs) != want {
 		t.Fatalf("found %d jobs, want all %d across three pages", len(jobs), want)
 	}
-	// Two run listings (queued, in progress) and one request per job page.
-	if n := requests.Load(); n != 5 {
-		t.Fatalf("the sweep made %d requests, want 5", n)
+	// Four run listings and one request per job page.
+	if n := requests.Load(); n != 7 {
+		t.Fatalf("the sweep made %d requests, want 7", n)
 	}
 }
 
@@ -857,10 +900,10 @@ func TestAnUnchangedFallbackPollRevalidatesEveryRead(t *testing.T) {
 			t.Fatalf("found %d jobs, want the same %d on every sweep", len(jobs), pollPerPage)
 		}
 	}
-	if got, want := requests.Load(), int32(6); got != want {
+	if got, want := requests.Load(), int32(10); got != want {
 		t.Fatalf("two sweeps made %d requests, want %d", got, want)
 	}
-	if got, want := conditional.Load(), int32(3); got != want {
+	if got, want := conditional.Load(), int32(5); got != want {
 		t.Fatalf("second sweep made %d conditional requests, want all %d", got, want)
 	}
 }
