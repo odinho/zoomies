@@ -640,9 +640,9 @@ func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
 		if name == "" {
 			continue
 		}
-		// A run that is in_progress can still hold jobs nobody has picked up,
-		// so both statuses matter.
-		for _, status := range []string{"queued", "in_progress"} {
+		// A deployment can leave the run pending or waiting while its other
+		// jobs still need runners.
+		for _, status := range []string{"queued", "in_progress", "pending", "waiting"} {
 			if budget <= 0 || requests <= 0 {
 				break
 			}
