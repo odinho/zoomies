@@ -2388,6 +2388,12 @@ is the single source for the Go, npm, pip, Maven and local BuildKit recipes,
 including concurrency limits and pull-request trust boundaries. For reuse
 across hosts, use its [registry cache recipe](persistent-caches.md#dind-and-buildkit).
 
+For PNPM 10 on host-run Linux agents, the pool environment variable
+`ZOOMIES_PNPM_WORKSPACE_STORE: v10` opts into
+[private workspace imports](persistent-caches.md#pnpm-imports-in-one-workspace-mount).
+The workspace and package store share one mount so imports can use hardlinks;
+unsupported layouts keep their normal store.
+
 #### Keeping a tool cache
 
 `cache.tools` keeps the pool's tool cache between runners as well: what
