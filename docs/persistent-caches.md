@@ -77,7 +77,9 @@ Both are in one bind mount, so PNPM can hardlink package content while keeping
 cannot hardlink to each other, even on the same host filesystem.
 
 Content files share inodes with the pool cache. Mutable metadata and Git download
-metadata are copied privately. After stopping the runner, Zoomies retains new
+metadata are copied privately. Executables the agent cannot hardlink because
+another user owns them are copied too; existing shared file permissions stay
+unchanged. After stopping the runner, Zoomies retains new
 cache entries and removes the private workspace. Existing shared metadata wins
 over older private snapshots. When changing Node ABI, a normal warm-up using the
 shared store may be needed to refresh existing metadata. Project registrations
