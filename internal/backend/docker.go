@@ -585,7 +585,8 @@ type containerOptions struct {
 	ToolCacheDir string
 	// ToolFarmDir is the host folder holding this runner's own tool cache,
 	// bound at RunnerToolCacheMount; it is set whenever ToolCacheDir is.
-	ToolFarmDir string
+	ToolFarmDir        string
+	PNPMWorkspaceStore bool
 }
 
 // extraCABind is the read-only mount for the extra CA bundle. The Podman
@@ -641,6 +642,9 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	}
 	if o.WorkDirOwned && o.WorkDirMount != "" {
 		labels[LabelWorkDir] = o.WorkDirMount
+	}
+	if o.PNPMWorkspaceStore {
+		labels[labelPNPMWorkspaceStore] = "v10"
 	}
 	if o.ToolFarmDir != "" {
 		labels[LabelToolFarm] = o.ToolFarmDir
@@ -1329,6 +1333,10 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	// can reap it when the network or work directory setup fails first.
 	b.prepareCacheDirs(spec, &opts)
 	b.pruneCacheFor(ctx, spec)
+	if next, dir := b.preparePNPMWorkspace(ctx, spec); dir != "" {
+		spec, workDir, owned = next, dir, true
+		opts.WorkDirMount, opts.WorkDirOwned, opts.PNPMWorkspaceStore = dir, true, true
+	}
 
 	var dindReadyDuration *time.Duration
 	switch spec.DockerMode {
@@ -2026,6 +2034,11 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 		// labels until that succeeds. Otherwise its path is lost on a retry.
 		if err := b.Stop(ctx, h, 10*time.Second); err != nil && !errors.Is(err, ErrNotFound) {
 			return err
+		}
+		if insp.Config.Labels[labelPNPMWorkspaceStore] == "v10" {
+			if err := keepPNPMStore(ctx, workDir, insp.Config.Labels[LabelCacheVolume]); err != nil {
+				b.log.Warn("could not retain new PNPM cache entries; removing the private workspace", "runner", name, "error", err)
+			}
 		}
 		if err := os.RemoveAll(workDir); err != nil {
 			return fmt.Errorf("backend: removing runner work directory %s: %w", workDir, err)

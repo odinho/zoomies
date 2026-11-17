@@ -67,6 +67,30 @@ The mount is `/opt/zoomies-cache`. Enable `tools: true` as well to retain
 setup-action toolchains; [keeping a tool cache](configuration.md#keeping-a-tool-cache)
 explains its image scope and how it differs from package downloads.
 
+## PNPM imports in one workspace mount
+
+For trusted PNPM 10 pools on host-run Linux agents, set the pool environment
+variable `ZOOMIES_PNPM_WORKSPACE_STORE: v10`. With an absolute host cache source,
+Zoomies seeds a private `.pnpm-store/v10` beside each ephemeral runner's work.
+Both are in one bind mount, so PNPM can hardlink package content while keeping
+`node_modules/.pnpm` in its normal repository location. Separate bind mounts
+cannot hardlink to each other, even on the same host filesystem.
+
+Content files share inodes with the pool cache. Mutable metadata and Git download
+metadata are copied privately. After stopping the runner, Zoomies retains new
+cache entries and removes the private workspace. Existing shared metadata wins
+over older private snapshots. When changing Node ABI, a normal warm-up using the
+shared store may be needed to refresh existing metadata. Project registrations
+and temporary downloads are excluded.
+
+This opt-in supports ephemeral runners without Docker access, a custom work
+directory or work tmpfs. The agent's work directory must be absolute and on the
+same filesystem as its cache. Unsupported layouts, cold stores and failed seeds
+use the existing package store. The pool's ordinary cache remains mounted for
+other tools. Removing the environment variable restores the ordinary layout for
+new runners. Jobs must treat cached package content as immutable, as with any
+shared PNPM store.
+
 ## Local cache scopes
 
 Use the pool's existing cache scope and source settings, described in [Hosts and pools](hosts-and-pools.md). Persistent host caches help subsequent runners on the same host; they do not follow a runner to another pool host automatically. A repository-scoped cache name is not a security boundary on an organisation installation: GitHub may assign a different matching repository's job to that runner. Use repository-target installations or explicit trust-separated pools for strong isolation.

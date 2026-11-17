@@ -185,7 +185,12 @@ func (b *DockerBackend) removeOwnedOccupant(ctx context.Context, spec Spec, side
 	if want != nil && adoptable(insp, *want) {
 		return insp.ID, false, nil
 	}
-	if err := b.api.ContainerRemove(ctx, insp.ID, true); err != nil && !errors.Is(err, ErrNotFound) {
+	if !sidecar && labels[labelPNPMWorkspaceStore] == "v10" {
+		err = b.Remove(ctx, Handle(insp.ID))
+	} else {
+		err = b.api.ContainerRemove(ctx, insp.ID, true)
+	}
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return "", false, err
 	}
 	// The record is what says a still-held name is a create of ours the daemon
@@ -216,6 +221,14 @@ func adoptable(insp *ContainerInspect, want ContainerCreateRequest) bool {
 	}
 	if insp.Config == nil || insp.Config.Image != want.Image || insp.HostConfig == nil {
 		return false
+	}
+	if insp.Config.Labels[labelPNPMWorkspaceStore] != "" || want.Labels[labelPNPMWorkspaceStore] != "" {
+		// A late create may bind a workspace that failure cleanup removed.
+		// Only this attempt's private workspace can stand in for its request.
+		if insp.Config.Labels[labelPNPMWorkspaceStore] != want.Labels[labelPNPMWorkspaceStore] ||
+			insp.Config.Labels[LabelWorkDir] == "" || insp.Config.Labels[LabelWorkDir] != want.Labels[LabelWorkDir] {
+			return false
+		}
 	}
 	var mode string
 	if want.HostConfig != nil {
