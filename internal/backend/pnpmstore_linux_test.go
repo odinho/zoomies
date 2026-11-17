@@ -161,6 +161,64 @@ func TestPNPMStoreHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestPNPMContentCopiesPermissionDeniedFilesWithoutChangingTheirSource(t *testing.T) {
+	for _, denied := range []bool{true, false} {
+		t.Run(fmt.Sprint(denied), func(t *testing.T) {
+			dir := t.TempDir()
+			writeStoreFile(t, dir, "source", "executable package")
+			sourcePath := filepath.Join(dir, "source")
+			if err := os.Chmod(sourcePath, 0o555); err != nil {
+				t.Fatal(err)
+			}
+			in, err := os.Open(sourcePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer in.Close()
+			target, err := os.OpenRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer target.Close()
+			other := errors.New("different filesystem")
+			link := func(*os.File, *os.Root, string) error {
+				if denied {
+					return fs.ErrPermission
+				}
+				return other
+			}
+			err = linkOrCopyPNPMFile(in, target, "package", link)
+			if !denied {
+				if !errors.Is(err, other) {
+					t.Fatalf("non-permission error = %v", err)
+				}
+				if _, err := target.Stat("package"); !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("copied after another link error: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := fs.ReadFile(target.FS(), "package")
+			if err != nil || string(data) != "executable package" {
+				t.Fatalf("copied content = %q, %v", data, err)
+			}
+			before, err := in.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := target.Stat("package")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if os.SameFile(before, after) || before.Mode().Perm() != 0o555 || after.Mode().Perm() != 0o777 {
+				t.Fatalf("copy shares an inode or changed source permissions: %v -> %v", before.Mode(), after.Mode())
+			}
+		})
+	}
+}
+
 func TestPNPMStoreExcludesProjectRegistrationsAndPartialDownloads(t *testing.T) {
 	shared, work := t.TempDir(), t.TempDir()
 	writeStoreFile(t, shared, "pnpm-store/v10/files/ab/content", "source")

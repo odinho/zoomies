@@ -196,13 +196,22 @@ func syncPNPMStore(ctx context.Context, source, target *os.Root) error {
 			return fmt.Errorf("package store entry %q is not a regular file", name)
 		}
 		if strings.HasPrefix(name, "files/") {
-			return linkPNPMFile(in, target, name)
+			return linkOrCopyPNPMFile(in, target, name, linkPNPMFile)
 		}
-		return copyPNPMMetadata(in, target, name)
+		return copyPNPMFile(in, target, name)
 	})
 }
 
-func copyPNPMMetadata(in *os.File, target *os.Root, name string) error {
+func linkOrCopyPNPMFile(in *os.File, target *os.Root, name string, link func(*os.File, *os.Root, string) error) error {
+	// Linux protected_hardlinks can refuse another user's read-only executables.
+	// Copy those files without changing permissions on the shared inode.
+	if err := link(in, target, name); !errors.Is(err, fs.ErrPermission) {
+		return err
+	}
+	return copyPNPMFile(in, target, name)
+}
+
+func copyPNPMFile(in *os.File, target *os.Root, name string) error {
 	info, err := in.Stat()
 	if err != nil {
 		return err
